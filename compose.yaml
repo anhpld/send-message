@@ -14,7 +14,8 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 3000
       HEADLESS: "true"
-      MESSENGER_PROFILE_DIR: /app/.playwright/messenger-profile
+      MESSENGER_STORAGE_STATE: /app/.playwright/messenger-state.json
+      MESSENGER_DIAGNOSTICS_DIR: /app/.playwright/diagnostics
     ports:
       - "127.0.0.1:${SEND_MESSAGE_PORT:-3001}:3000"
     volumes:
@@ -29,4 +30,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-

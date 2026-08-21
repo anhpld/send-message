@@ -1,6 +1,7 @@
 node_modules/
 .env
 .playwright/
+.playwright*.tar*
+messenger-profile*.tar*
 playwright-report/
 test-results/
-

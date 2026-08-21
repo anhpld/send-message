@@ -42,9 +42,13 @@ function getConfig() {
 
   return {
     baseUrl: process.env.MESSENGER_BASE_URL || 'https://www.messenger.com/',
-    profileDir: path.resolve(
+    storageStatePath: path.resolve(
       projectRoot,
-      process.env.MESSENGER_PROFILE_DIR || '.playwright/messenger-profile',
+      process.env.MESSENGER_STORAGE_STATE || '.playwright/messenger-state.json',
+    ),
+    diagnosticsDir: path.resolve(
+      projectRoot,
+      process.env.MESSENGER_DIAGNOSTICS_DIR || '.playwright/diagnostics',
     ),
     timeoutMs,
     headless: asBoolean(process.env.HEADLESS, false),
@@ -81,12 +85,89 @@ function validateChatUrl(rawUrl) {
 }
 
 async function openBrowser(config) {
-  return chromium.launchPersistentContext(config.profileDir, {
+  const browser = await chromium.launch({
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     headless: config.headless,
-    viewport: null,
-    locale: process.env.MESSENGER_LOCALE || 'vi-VN',
   });
+
+  try {
+    const context = await browser.newContext({
+      storageState: fs.existsSync(config.storageStatePath) ? config.storageStatePath : undefined,
+      viewport: null,
+      locale: process.env.MESSENGER_LOCALE || 'vi-VN',
+    });
+    return { browser, context };
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+}
+
+async function saveStorageState(context, config) {
+  fs.mkdirSync(path.dirname(config.storageStatePath), { recursive: true });
+  await context.storageState({
+    path: config.storageStatePath,
+    indexedDB: true,
+  });
+}
+
+async function saveDiagnostics(page, config) {
+  fs.mkdirSync(config.diagnosticsDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const screenshotPath = path.join(config.diagnosticsDir, `messenger-${timestamp}.png`);
+  const title = await page.title().catch(() => 'Không đọc được tiêu đề');
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  console.error(`Messenger đang ở URL: ${page.url()}`);
+  console.error(`Tiêu đề trang: ${title}`);
+  console.error(`Đã lưu ảnh chẩn đoán tại: ${screenshotPath}`);
+}
+
+async function requiresAuthentication(page) {
+  try {
+    const pathname = new URL(page.url()).pathname.toLowerCase();
+    if (pathname.includes('/login') || pathname.includes('/checkpoint')) return true;
+  } catch {
+    // Continue with the DOM check when the current URL cannot be parsed.
+  }
+
+  return page.locator('input[name="email"], input[name="pass"]').first().isVisible().catch(() => false);
+}
+
+function continueButton(page) {
+  return page.getByRole('button', { name: /^(Tiếp tục dưới tên|Continue as)/i }).first();
+}
+
+function authenticationError() {
+  const error = new Error('Session Messenger không hợp lệ hoặc tài khoản đang yêu cầu đăng nhập/checkpoint.');
+  error.code = 'MESSENGER_AUTH_REQUIRED';
+  return error;
+}
+
+async function clickContinueWithSavedAccount(page, timeoutMs = 0) {
+  const button = continueButton(page);
+  if (timeoutMs > 0) {
+    await button.waitFor({ state: 'visible', timeout: timeoutMs }).catch(() => {});
+  }
+  if (!(await button.isVisible().catch(() => false))) return false;
+
+  await button.click();
+  await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+  await page.waitForTimeout(2_000);
+  return true;
+}
+
+async function restoreMessengerSession(page, context, config) {
+  await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
+  const continued = await clickContinueWithSavedAccount(page, Math.min(config.timeoutMs, 10_000));
+  if (!continued || await requiresAuthentication(page)) return false;
+
+  await saveStorageState(context, config);
+  return true;
+}
+
+async function closeBrowser(browser, context) {
+  await context.close().catch(() => {});
+  await browser.close().catch(() => {});
 }
 
 function waitForTerminalEnter(prompt) {
@@ -106,16 +187,20 @@ async function login(config) {
     throw new Error('Lệnh login cần HEADLESS=false để bạn đăng nhập thủ công.');
   }
 
-  const context = await openBrowser(config);
+  const { browser, context } = await openBrowser(config);
   const page = context.pages()[0] || (await context.newPage());
 
   try {
     await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
-    console.log(`Session sẽ được lưu tại: ${config.profileDir}`);
+    console.log(`Session sẽ được lưu tại: ${config.storageStatePath}`);
     console.log('Hãy đăng nhập Facebook/Messenger và xử lý 2FA trong cửa sổ trình duyệt.');
     await waitForTerminalEnter('Đăng nhập xong, quay lại terminal và nhấn Enter để lưu session... ');
+    await clickContinueWithSavedAccount(page, 3_000);
+    if (await requiresAuthentication(page)) throw authenticationError();
+    await saveStorageState(context, config);
+    console.log('Đã lưu storage state. Không commit hoặc chia sẻ file này.');
   } finally {
-    await context.close();
+    await closeBrowser(browser, context);
   }
 }
 
@@ -129,6 +214,9 @@ async function findComposer(page, timeoutMs) {
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (await requiresAuthentication(page) || await continueButton(page).isVisible().catch(() => false)) {
+      throw authenticationError();
+    }
     for (const selector of selectors) {
       const candidates = page.locator(selector);
       for (let index = (await candidates.count()) - 1; index >= 0; index -= 1) {
@@ -153,12 +241,21 @@ async function send(config, confirmSend) {
     throw new Error('Preview cần HEADLESS=false để bạn kiểm tra nội dung.');
   }
 
-  const context = await openBrowser(config);
+  const { browser, context } = await openBrowser(config);
   const page = context.pages()[0] || (await context.newPage());
 
   try {
     await page.goto(chatUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
-    const composer = await findComposer(page, config.timeoutMs);
+    let composer;
+    try {
+      composer = await findComposer(page, config.timeoutMs);
+    } catch (error) {
+      if (error.code !== 'MESSENGER_AUTH_REQUIRED' || !(await restoreMessengerSession(page, context, config))) {
+        throw error;
+      }
+      await page.goto(chatUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
+      composer = await findComposer(page, config.timeoutMs);
+    }
     await composer.click();
     await composer.fill(config.message);
 
@@ -171,9 +268,15 @@ async function send(config, confirmSend) {
 
     await composer.press('Enter');
     await page.waitForTimeout(1_500);
+    await saveStorageState(context, config);
     console.log('Đã nhấn Enter để gửi tin nhắn.');
+  } catch (error) {
+    await saveDiagnostics(page, config).catch((diagnosticError) => {
+      console.error(`Không thể lưu ảnh chẩn đoán: ${diagnosticError.message}`);
+    });
+    throw error;
   } finally {
-    await context.close();
+    await closeBrowser(browser, context);
   }
 }
 

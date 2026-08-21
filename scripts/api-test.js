@@ -15,7 +15,8 @@ async function main() {
     },
     messengerConfig: {
       baseUrl: 'https://www.messenger.com/',
-      profileDir: '.playwright/test-profile',
+      storageStatePath: '.playwright/test-state.json',
+      diagnosticsDir: '.playwright/test-diagnostics',
       timeoutMs: 1_000,
       headless: true,
     },

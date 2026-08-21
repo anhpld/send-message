@@ -21,7 +21,8 @@ npm.cmd run messenger:login
 ```
 
 Đăng nhập Facebook/Messenger và xử lý 2FA trong cửa sổ Chromium. Sau đó quay lại
-terminal và nhấn Enter. Session được lưu tại `.playwright/messenger-profile`.
+terminal và nhấn Enter. Session được lưu tại `.playwright/messenger-state.json`.
+File này chứa cookie đăng nhập, không được commit hoặc chia sẻ.
 
 ## Chạy API
 
@@ -85,7 +86,7 @@ Tạo file cấu hình rồi đặt một `API_KEY` đủ dài:
 
 ```bash
 cp .env.example .env
-mkdir -p .playwright/messenger-profile
+mkdir -p .playwright
 ```
 
 Build và chạy API:
@@ -103,5 +104,14 @@ curl http://127.0.0.1:3001/health
 ```
 
 Thư mục `.playwright` được mount từ host để session Messenger không mất khi cập nhật
-hoặc tạo lại container. Container production chạy `HEADLESS=true`, vì vậy cần chuẩn
-bị profile đã đăng nhập trước khi gọi API gửi tin nhắn.
+hoặc tạo lại container. Container production chạy `HEADLESS=true`, vì vậy cần tạo
+storage state ở máy local rồi chuyển riêng file đó lên server:
+
+```powershell
+npm.cmd run messenger:login
+scp .\.playwright\messenger-state.json SSH_USER@SERVER:/PATH/send-message-fb/.playwright/
+```
+
+Không commit `messenger-state.json`. Nếu gửi tin nhắn lỗi, ứng dụng ghi URL, tiêu đề
+trang và ảnh chẩn đoán vào `.playwright/diagnostics` để kiểm tra màn đăng nhập hoặc
+checkpoint.
