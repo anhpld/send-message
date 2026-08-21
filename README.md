@@ -77,3 +77,31 @@ X-API-Key: your-api-key
 
 Các request được xếp hàng và gửi tuần tự để không có hai Chromium cùng sử dụng một
 profile. Script không vượt CAPTCHA, checkpoint hoặc 2FA.
+
+## Chạy bằng Docker
+
+Image dùng đúng Playwright `1.62.1` và đã có sẵn Chromium cùng các thư viện hệ thống.
+Tạo file cấu hình rồi đặt một `API_KEY` đủ dài:
+
+```bash
+cp .env.example .env
+mkdir -p .playwright/messenger-profile
+```
+
+Build và chạy API:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker compose logs -f messenger-api
+```
+
+API chỉ được publish trên loopback của server tại `http://127.0.0.1:3001`. Kiểm tra:
+
+```bash
+curl http://127.0.0.1:3001/health
+```
+
+Thư mục `.playwright` được mount từ host để session Messenger không mất khi cập nhật
+hoặc tạo lại container. Container production chạy `HEADLESS=true`, vì vậy cần chuẩn
+bị profile đã đăng nhập trước khi gọi API gửi tin nhắn.

@@ -1,0 +1,32 @@
+services:
+  messenger-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: send-message-fb:latest
+    container_name: send-message-fb
+    init: true
+    ipc: host
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      HEADLESS: "true"
+      MESSENGER_PROFILE_DIR: /app/.playwright/messenger-profile
+    ports:
+      - "127.0.0.1:${SEND_MESSAGE_PORT:-3001}:3000"
+    volumes:
+      - ./.playwright:/app/.playwright
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
