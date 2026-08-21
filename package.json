@@ -1,0 +1,21 @@
+{
+  "name": "money-check",
+  "version": "1.0.0",
+  "description": "Send a Messenger group message through a locally authenticated Playwright browser session.",
+  "main": "src/messenger.js",
+  "scripts": {
+    "messenger:login": "node src/messenger.js login",
+    "api": "node src/api.js",
+    "start": "node src/api.js",
+    "check": "node --check src/messenger.js && node --check src/api.js && node --check scripts/smoke-test.js && node --check scripts/api-test.js",
+    "test": "node scripts/api-test.js",
+    "smoke": "node scripts/smoke-test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
