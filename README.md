@@ -97,7 +97,8 @@ docker compose ps
 docker compose logs -f messenger-api
 ```
 
-API chỉ được publish trên loopback của server tại `http://127.0.0.1:3001`. Kiểm tra:
+API được publish tại cổng `3001` của server. Hãy giới hạn IP nguồn bằng firewall và
+luôn cấu hình `API_KEY`. Kiểm tra từ chính server:
 
 ```bash
 curl http://127.0.0.1:3001/health
