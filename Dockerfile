@@ -13,8 +13,8 @@ RUN npm ci --omit=dev \
     && npm cache clean --force
 
 COPY src ./src
+COPY scripts ./scripts
 
 EXPOSE 3000
 
 CMD ["node", "src/api.js"]
-

@@ -5,9 +5,11 @@
   "main": "src/messenger.js",
   "scripts": {
     "messenger:login": "node src/messenger.js login",
+    "messenger:members": "node scripts/list-group-members.js",
+    "messenger:test": "node scripts/send-test-message.js",
     "api": "node src/api.js",
     "start": "node src/api.js",
-    "check": "node --check src/messenger.js && node --check src/api.js && node --check scripts/smoke-test.js && node --check scripts/api-test.js",
+    "check": "node --check src/messenger.js && node --check src/api.js && node --check scripts/list-group-members.js && node --check scripts/send-test-message.js && node --check scripts/smoke-test.js && node --check scripts/api-test.js",
     "test": "node scripts/api-test.js",
     "smoke": "node scripts/smoke-test.js"
   },

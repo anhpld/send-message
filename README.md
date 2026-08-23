@@ -24,6 +24,24 @@ npm.cmd run messenger:login
 terminal và nhấn Enter. Session được lưu tại `.playwright/messenger-state.json`.
 File này chứa cookie đăng nhập, không được commit hoặc chia sẻ.
 
+## Lấy danh sách thành viên nhóm
+
+Dùng session Messenger đã đăng nhập để mở thông tin nhóm và in danh sách thành viên ra JSON:
+
+```powershell
+npm.cmd run messenger:members -- https://www.messenger.com/t/ID_CUA_GROUP
+```
+
+Nếu đang chạy bằng Docker trên server:
+
+```bash
+docker compose exec messenger-api npm run messenger:members -- https://www.messenger.com/t/ID_CUA_GROUP
+```
+
+Kết quả gồm tên, ID (khi Messenger hiển thị ID hoặc username trong URL) và URL trang cá nhân.
+Script chỉ đọc những thành viên mà tài khoản hiện tại có quyền xem. Nếu giao diện Messenger thay đổi,
+ảnh chẩn đoán sẽ được lưu trong `.playwright/diagnostics`.
+
 ## Chạy API
 
 ```powershell
