@@ -267,7 +267,7 @@ async function send(config, confirmSend) {
     }
 
     await composer.press('Enter');
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(10_000);
     await saveStorageState(context, config);
     console.log('Đã nhấn Enter để gửi tin nhắn.');
   } catch (error) {
