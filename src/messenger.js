@@ -232,6 +232,113 @@ async function findComposer(page, timeoutMs) {
   );
 }
 
+function parseMessageSegments(message) {
+  const segments = [];
+  const regex = /@\[([^\]]+)\]/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(message)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', value: message.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: 'mention', name: match[1], raw: match[0] });
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < message.length) {
+    segments.push({ type: 'text', value: message.slice(lastIndex) });
+  }
+
+  return segments;
+}
+
+async function insertTextLines(page, text) {
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) {
+      await page.keyboard.press('Shift+Enter');
+      await page.waitForTimeout(100);
+    }
+    if (lines[i].length > 0) {
+      await page.keyboard.insertText(lines[i]);
+      await page.waitForTimeout(50);
+    }
+  }
+}
+
+async function getVisibleMentionOption(page) {
+  const optionSelectors = [
+    '[role="listbox"] [role="option"]',
+    'ul[role="listbox"] li',
+    '[role="menu"] [role="menuitem"]',
+    'div[data-testid*="mention"] [role="option"]',
+    'div[aria-label*="gợi ý" i] [role="option"]',
+    'div[aria-label*="suggestion" i] [role="option"]',
+    'div[aria-label*="nhắc đến" i] [role="option"]',
+  ];
+  for (const selector of optionSelectors) {
+    const locator = page.locator(selector);
+    const count = await locator.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const item = locator.nth(i);
+      if (await item.isVisible().catch(() => false)) {
+        return item;
+      }
+    }
+  }
+  return null;
+}
+
+async function typeMessageWithMentions(page, composer, message) {
+  const segments = parseMessageSegments(message);
+
+  await composer.click();
+  await page.waitForTimeout(300);
+
+  for (const segment of segments) {
+    if (segment.type === 'text') {
+      await insertTextLines(page, segment.value);
+      continue;
+    }
+
+    if (segment.type === 'mention') {
+      // Gõ '@' để kích hoạt popup danh sách thành viên
+      await page.keyboard.type('@', { delay: 100 });
+      await page.waitForTimeout(200);
+
+      // Gõ tên để lọc gợi ý
+      await page.keyboard.type(segment.name, { delay: 60 });
+
+      // Chờ tối đa 1.8s xem popup gợi ý có xuất hiện hay không
+      const deadline = Date.now() + 1800;
+      let option = null;
+      while (Date.now() < deadline) {
+        option = await getVisibleMentionOption(page);
+        if (option) break;
+        await page.waitForTimeout(150);
+      }
+
+      if (option) {
+        // Popup xuất hiện: click option đầu tiên hoặc ấn Enter để xác nhận tag
+        const clicked = await option.click().then(() => true).catch(() => false);
+        if (!clicked) {
+          await page.keyboard.press('Enter');
+        }
+        await page.waitForTimeout(300);
+      } else {
+        // Fallback: popup không xuất hiện -> xóa những gì vừa gõ và giữ nguyên @[Tên]
+        const charCount = 1 + [...segment.name].length;
+        for (let i = 0; i < charCount; i++) {
+          await page.keyboard.press('Backspace');
+        }
+        await page.keyboard.insertText(segment.raw);
+        await page.waitForTimeout(100);
+      }
+    }
+  }
+}
+
 async function send(config, confirmSend) {
   const chatUrl = validateChatUrl(config.chatUrl);
   if (!config.message || !config.message.trim()) {
@@ -257,7 +364,11 @@ async function send(config, confirmSend) {
       composer = await findComposer(page, config.timeoutMs);
     }
     await composer.click();
-    await composer.fill(config.message);
+    if (config.message.includes('@[')) {
+      await typeMessageWithMentions(page, composer, config.message);
+    } else {
+      await composer.fill(config.message);
+    }
 
     if (!confirmSend) {
       console.log('PREVIEW: Nội dung đã được nhập nhưng CHƯA gửi.');
@@ -313,4 +424,6 @@ module.exports = {
   login,
   send,
   validateChatUrl,
+  parseMessageSegments,
+  getVisibleMentionOption,
 };

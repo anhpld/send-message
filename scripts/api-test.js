@@ -1,6 +1,24 @@
 const { createServer, getRequestPayload } = require('../src/api');
+const { parseMessageSegments } = require('../src/messenger');
 
 async function main() {
+  // Test parseMessageSegments
+  const test1 = parseMessageSegments('Hello world');
+  if (test1.length !== 1 || test1[0].value !== 'Hello world') {
+    throw new Error('parseMessageSegments failed on plain text');
+  }
+
+  const test2 = parseMessageSegments('Chào @[Đức Anh] và @[Tuấn Sơn] nhé!');
+  if (
+    test2.length !== 5 ||
+    test2[0].value !== 'Chào ' ||
+    test2[1].name !== 'Đức Anh' ||
+    test2[2].value !== ' và ' ||
+    test2[3].name !== 'Tuấn Sơn' ||
+    test2[4].value !== ' nhé!'
+  ) {
+    throw new Error('parseMessageSegments failed on mentions');
+  }
   const payload = getRequestPayload({
     MESSENGER_CHAT_URL: 'https://www.messenger.com/t/123456789',
     MESSAGE_TEXT: 'test',
