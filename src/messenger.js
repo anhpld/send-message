@@ -204,6 +204,72 @@ async function login(config) {
   }
 }
 
+async function dismissBlockingOverlays(page) {
+  try {
+    const dialogCount = await page.locator('div[role="dialog"]').count();
+    if (dialogCount === 0) return false;
+
+    console.log(`[OVERLAY] Phát hiện ${dialogCount} hộp thoại dialog, đang xử lý đóng...`);
+
+    // 1. Nếu có nút "Không khôi phục tin nhắn" / "Continue without restoring"
+    const clickedConfirm = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button'));
+      const btn = buttons.find((b) => {
+        const t = (b.innerText || '').toLowerCase();
+        return t.includes('không khôi phục') || t.includes('continue without') || t.includes('để sau') || t.includes('không phải bây giờ');
+      });
+      if (btn) {
+        btn.click();
+        return btn.innerText;
+      }
+      return null;
+    });
+
+    if (clickedConfirm) {
+      console.log(`[OVERLAY] Đã bấm xác nhận: "${clickedConfirm}"`);
+      await page.waitForTimeout(1000);
+    }
+
+    // 2. Click nút Đóng (✕)
+    const clickedClose = await page.evaluate(() => {
+      const btn = document.querySelector('div[role="dialog"] div[aria-label="Đóng"], div[role="dialog"] [aria-label="Close"], div[role="dialog"] [aria-label="close"]');
+      if (btn) {
+        btn.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (clickedClose) {
+      console.log('[OVERLAY] Đã bấm nút Đóng (✕) của dialog');
+      await page.waitForTimeout(1000);
+
+      // Thử kiểm tra tiếp xem có hiện modal xác nhận tiếp không
+      await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button'));
+        const btn = buttons.find((b) => {
+          const t = (b.innerText || '').toLowerCase();
+          return t.includes('không khôi phục') || t.includes('continue without') || t.includes('để sau') || t.includes('không phải bây giờ');
+        });
+        if (btn) btn.click();
+      });
+      await page.waitForTimeout(500);
+    }
+
+    // 3. Fallback: Escape
+    const remaining = await page.locator('div[role="dialog"]').count();
+    if (remaining > 0) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[OVERLAY] Bỏ qua lỗi khi xử lý dialog:', err.message);
+    return false;
+  }
+}
+
 async function findComposer(page, timeoutMs) {
   const selectors = [
     '[aria-label="Tin nhắn"][contenteditable="true"]',
@@ -217,6 +283,7 @@ async function findComposer(page, timeoutMs) {
     if (await requiresAuthentication(page) || await continueButton(page).isVisible().catch(() => false)) {
       throw authenticationError();
     }
+    await dismissBlockingOverlays(page);
     for (const selector of selectors) {
       const candidates = page.locator(selector);
       for (let index = (await candidates.count()) - 1; index >= 0; index -= 1) {
@@ -298,6 +365,8 @@ async function typeMessageWithMentions(page, composer, message) {
 
   for (const segment of segments) {
     if (segment.type === 'text') {
+      await composer.focus().catch(() => {});
+      await page.keyboard.press('End');
       await insertTextLines(page, segment.value);
       continue;
     }
@@ -326,13 +395,19 @@ async function typeMessageWithMentions(page, composer, message) {
           await page.keyboard.press('Enter');
         }
         await page.waitForTimeout(300);
+        await composer.focus().catch(() => {});
+        await page.keyboard.press('End');
+        await page.waitForTimeout(100);
       } else {
         // Fallback: popup không xuất hiện -> xóa những gì vừa gõ và giữ nguyên @[Tên]
+        await composer.focus().catch(() => {});
         const charCount = 1 + [...segment.name].length;
         for (let i = 0; i < charCount; i++) {
           await page.keyboard.press('Backspace');
         }
         await page.keyboard.insertText(segment.raw);
+        await composer.focus().catch(() => {});
+        await page.keyboard.press('End');
         await page.waitForTimeout(100);
       }
     }
@@ -363,7 +438,14 @@ async function send(config, confirmSend) {
       await page.goto(chatUrl, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
       composer = await findComposer(page, config.timeoutMs);
     }
-    await composer.click();
+    await dismissBlockingOverlays(page);
+    try {
+      await composer.click({ timeout: 5000 });
+    } catch (clickErr) {
+      console.warn(`[WARN] Click thông thường gặp cản trở (${clickErr.message}), thử dismiss lại overlay và click force...`);
+      await dismissBlockingOverlays(page);
+      await composer.click({ force: true });
+    }
     if (config.message.includes('@[')) {
       await typeMessageWithMentions(page, composer, config.message);
     } else {
